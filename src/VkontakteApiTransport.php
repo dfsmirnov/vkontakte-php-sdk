@@ -7,7 +7,7 @@ namespace BW;
  *
  * @author Bocharsky Victor, https://github.com/Vastly
  */
-class Vkontakte
+class VkontakteApiTransport
 {
 
     const VERSION = '5.5';
