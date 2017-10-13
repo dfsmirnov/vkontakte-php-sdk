@@ -48,6 +48,24 @@ class VkontakteApiTransport
      */
     private $accessToken;
 
+    /**
+     * The last error number
+     * @var string
+     */
+    private $iErrorNo=0;
+
+    /**
+     * The last error text
+     * @var string
+     */
+    private $sError='';
+
+    /**
+     * The last error header from response
+     * @var string
+     */
+    private $sErrorHeader='';
+
 
     /**
      * The Vkontakte instance constructor for quick configuration
@@ -56,8 +74,7 @@ class VkontakteApiTransport
     public function __construct(array $config)
     {
         if (isset($config['access_token'])) {
-
-            $this->setAccessToken(json_encode(['access_token' => $config['access_token']]));
+            $this->setAccessToken(json_encode(array('access_token' => $config['access_token'])));
         }
         if (isset($config['app_id'])) {
             $this->setAppId($config['app_id']);
@@ -201,11 +218,12 @@ class VkontakteApiTransport
      * Get the login URL via Vkontakte
      * @return string
      */
-    public function getLoginUrl()
+    public function getLoginUrl($sDisplayType = '')
     {
 
         return 'https://oauth.vk.com/authorize'
         . '?client_id=' . urlencode($this->getAppId())
+        . ($sDisplayType ? '&display='.$sDisplayType : '')
         . '&scope=' . urlencode(implode(',', $this->getScope()))
         . '&redirect_uri=' . urlencode($this->getRedirectUri())
         . '&response_type=' . urlencode($this->getResponceType())
@@ -310,118 +328,71 @@ class VkontakteApiTransport
      * @return mixed The result of curl_exec() function
      * @throws \Exception
      */
-    protected function curl($url)
+    protected function curl($url, $method = 'GET', $postfields = array())
     {
         // create curl resource
         $ch = curl_init();
 
-        // set url
-        curl_setopt($ch, CURLOPT_URL, $url);
-        // return the transfer as a string
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
-        // disable SSL verifying
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
+        $opts = array(
+            CURLOPT_USERAGENT => 'VK/1.0 (+https://github.com/vladkens/VK))',
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_POST => ($method == 'POST'),
+            CURLOPT_POSTFIELDS => $postfields,
+            CURLOPT_URL => $url,
+            CURLOPT_SSL_VERIFYHOST => false
+        );
 
-        // $output contains the output string
-        $result = curl_exec($ch);
+        curl_setopt_array($ch, $opts);
 
-        if (!$result) {
-            $errno = curl_errno($ch);
-            $error = curl_error($ch);
+        $out = curl_exec($ch);
+
+        $err = curl_errno($ch);
+        if ($err){
+            $this->iErrorNo = $err;
+            $this->sError = curl_error($ch);
+            $this->sErrorHeader = curl_getinfo($ch);
         }
 
-        // close curl resource to free up system resources
-        curl_close($ch);
 
-        if (isset($errno) && isset($error)) {
-            throw new \Exception($error, $errno);
-        }
-
-        return $result;
+        return $out;
     }
-
 
     /**
-     * @param $publicID int vk group official identifier
-     * @param $fullServerPathToImage string full path to the image file, ex. /var/www/site/img/pic.jpg
-     * @param $text string message text
-     * @param $tags array message tags
-     * @return bool true if operation finished successfully and false otherwise
+     * Get last error info
+     * @return array
      */
-    public function postToPublic($publicID, $text, $fullServerPathToImage, $tags = array())
-    {
-
-
-        $response = $this->api('photos.getWallUploadServer', [
-
-            'group_id' => $publicID,
-        ]);
-        /*
-         * public 'upload_url' => string 'http://cs618028.vk.com/upload.php?act=do_add&mid=76989657&aid=-14&gid=70941690&hash=0c9cdfa73779ea6c904c4b5326368700&rhash=ba9b60e61e258bf8fd61536e6683e3af&swfupload=1&api=1&wallphoto=1' (length=185)
-              public 'aid' => int -14
-              public 'mid' => int 76989657
-         *
-         *  */
-
-        $uploadURL = $response->upload_url;
-        $output = [];
-        exec("curl -X POST -F 'photo=@$fullServerPathToImage' '$uploadURL'", $output);
-        $response = json_decode($output[0]);
-        /*
-         *  public 'server' => int 618028
-              public 'photo' => string '[{"photo":"96df595e0b:z","sizes":[["s","618028657","c5b1","RfjznPPyhxs",75,54],["m","618028657","c5b2","dQRTijvf4tE",130,93],["x","618028657","c5b3","-zUzUi-uOkU",604,432],["y","618028657","c5b4","FAAY0vnMSWc",807,577],["z","618028657","c5b5","OBZqwGjlO9s",900,644],["o","618028657","c5b6","Ku7Q6IqN5uc",130,93],["p","618028657","c5b7","0eFhSRrjxvU",200,143],["q","618028657","c5b8","F8E6QJg51o4",320,229],["r","618028657","c5b9","-a3oiI8SVOg",510,365]],"kid":"6bba9104fa05dd017597abce3ebeb215"}]' (length=496)
-              public 'hash' => string 'd02d83e70eca1c0d756d1a5d51c2fbfb' (length=32)
-         */
-
-
-        $response = $this->api('photos.saveWallPhoto', [
-            'group_id' => $publicID,
-            'photo' => $response->photo,
-            'server' => $response->server,
-            'hash' => $response->hash,
-        ]);
-        /*
- *
- * array (size=1)
-0 =>
-object(stdClass)[93]
-public 'pid' => int 333363577
-public 'id' => string 'photo76989657_333363577' (length=23)
-public 'aid' => int -14
-public 'owner_id' => int 76989657
-public 'src' => string 'http://cs618028.vk.me/v618028657/c5c4/CJkUGsTNMNc.jpg' (length=53)
-public 'src_big' => string 'http://cs618028.vk.me/v618028657/c5c5/6G5kG2qrd0A.jpg' (length=53)
-public 'src_small' => string 'http://cs618028.vk.me/v618028657/c5c3/NjaefgAEqFA.jpg' (length=53)
-public 'src_xbig' => string 'http://cs618028.vk.me/v618028657/c5c6/dyX4tBB3yaI.jpg' (length=53)
-public 'src_xxbig' => string 'http://cs618028.vk.me/v618028657/c5c7/r8xGBKsau9c.jpg' (length=53)
-public 'width' => int 900
-public 'height' => int 644
-public 'text' => string '' (length=0)
-public 'created' => int 1402950212
- *
- */
-
-        if ($tags) {
-            $text .= "\n\n";
+    public function getLastError(){
+        if ($this->iErrorNo){
+            return array(
+                'iErrorNo' => $this->iErrorNo,
+                'sError' => $this->sError,
+                'sErrorHeader' => $this->sErrorHeader,
+            );
         }
-        foreach ($tags as $tag) {
-
-            $text .= ' #' . str_replace(' ', '_', $tag);
+        else{
+            return array();
         }
-        $text = html_entity_decode($text);
-        $response = $this->api('wall.post',
-            [
-                'owner_id' => -$publicID,
-                'from_group' => 1,
-                'message' => "$text",
-                'attachments' => "{$response[0]->id}", // uploaded image is passed as attachment
-
-
-            ]);
-
-
-        return isset($response->post_id);
-
-
     }
+
+    /**
+     * Clear last error info
+     */
+    public function clearLastError(){
+        $this->iErrorNo = 0;
+        $this->sError = '';
+        $this->sErrorHeader = '';
+    }
+
+    /**
+     * @param $url
+     * @param $postfields
+     * @return mixed
+     */
+    public function uploadMedia($url, $postfields)
+    {
+        return $this->curl($url, 'POST', $postfields);
+    }
+
+
 }
