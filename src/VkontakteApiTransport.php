@@ -294,6 +294,9 @@ class VkontakteApiTransport
      */
     public function api($method, array $query = array())
     {
+        if (!isset($query['v'])) {
+            $query['v'] = self::VERSION;
+        }
         /* Generate query string from array */
         $parameters = array();
         foreach ($query as $param => $value) {
